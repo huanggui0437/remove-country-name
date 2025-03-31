@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Excel后缀清理工具</title>
+    <style>
+        .container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        .drop-zone {
+            border: 2px dashed #ccc;
+            padding: 2rem;
+            text-align: center;
+            margin: 1rem 0;
+            cursor: pointer;
+        }
+        .drop-zone.dragover {
+            background: #f0f0f0;
+        }
+        #progress {
+            height: 20px;
+            background: #f0f0f0;
+            margin: 1rem 0;
+            display: none;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Excel店铺后缀清理工具</h1>
+        <div class="drop-zone" id="dropZone">
+            拖放Excel文件到此区域 或 点击选择文件
+            <input type="file" id="fileInput" hidden accept=".xlsx">
+        </div>
+        <div id="progress"></div>
+        <button onclick="processFile()" id="processBtn" disabled>开始处理</button>
+        
+        <h3>使用说明：</h3>
+        <ol>
+            <li>准备Excel文件，确保包含Sheet1（数据）和Sheet2（后缀列表）</li>
+            <li>上传文件后点击"开始处理"按钮</li>
+            <li>处理完成后会自动下载结果文件</li>
+        </ol>
+    </div>
+
+    <!-- 引入xlsx库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <script>
+        let uploadedFile = null;
+
+        // 文件拖放处理
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        
+        dropZone.addEventListener('click', () => fileInput.click());
+        
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            uploadedFile = e.dataTransfer.files[0];
+            document.getElementById('processBtn').disabled = false;
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            uploadedFile = e.target.files[0];
+            document.getElementById('processBtn').disabled = false;
+        });
+
+        // 核心处理逻辑
+        async function processFile() {
+            if (!uploadedFile) return alert('请先选择文件');
+            
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    
+                    // 获取后缀列表（Sheet2）
+                    const suffixSheet = workbook.Sheets[workbook.SheetNames[1]];
+                    const suffixes = XLSX.utils.sheet_to_json(suffixSheet, { header: 1 })
+                        .flat()
+                        .filter(x => x)
+                        .sort((a, b) => b.length - a.length); // 按长度降序
+
+                    // 处理数据（Sheet1）
+                    const dataSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const range = XLSX.utils.decode_range(dataSheet['!ref']);
+                    
+                    for (let row = range.s.r; row <= range.e.r; row++) {
+                        const cell = dataSheet[XLSX.utils.encode_cell({ r: row, c: 0 })];
+                        if (cell && cell.t === 's') {
+                            let value = cell.v;
+                            for (const suffix of suffixes) {
+                                if (value.endsWith(suffix)) {
+                                    value = value.slice(0, -suffix.length).trim();
+                                    break;
+                                }
+                            }
+                            dataSheet[XLSX.utils.encode_cell({ r: row, c: 0 })].v = value;
+                        }
+                    }
+
+                    // 生成新文件
+                    const newWB = XLSX.utils.book_new();
+                    XLSX.utils.book_append_sheet(newWB, dataSheet, 'Sheet1');
+                    const newData = XLSX.write(newWB, { type: 'array', bookType: 'xlsx' });
+                    
+                    // 触发下载
+                    const blob = new Blob([newData], { type: 'application/octet-stream' });
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(blob);
+                    link.download = `处理结果_${new Date().getTime()}.xlsx`;
+                    link.click();
+                    
+                } catch (error) {
+                    alert(`处理失败: ${error.message}`);
+                }
+            };
+            
+            reader.readAsArrayBuffer(uploadedFile);
+        }
+    </script>
+</body>
+</html>
